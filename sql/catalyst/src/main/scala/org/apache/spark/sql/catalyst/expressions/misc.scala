@@ -91,8 +91,6 @@ case class Hash(child: Expression) extends UnaryExpression {
     case others => others.hashCode()
   }
 
-  override def toString: String = s"HASH($child)"
-
 }
 
 
