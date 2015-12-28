@@ -175,11 +175,22 @@ abstract class LogicalPlan extends QueryPlan[LogicalPlan] with Logging {
     nameParts.toSeq
   }
 
+  private def reduceQualifiers(
+     nameParts: Seq[String],
+     resolver: Resolver,
+     qualifiers: Seq[String]): Seq[String] = {
+    if (nameParts.isEmpty || qualifiers.isEmpty || !qualifiers.contains(nameParts.head)) {
+      nameParts
+    } else {
+      reduceQualifiers(nameParts.tail, resolver, qualifiers.filterNot(_ == nameParts.head))
+    }
+  }
+
   /**
    * Resolve the given `name` string against the given attribute, returning either 0 or 1 match.
    *
    * This assumes `name` has multiple parts, where the 1st part is a qualifier
-   * (i.e. table name, alias, or subquery alias).
+   * (i.e. database name, table name, alias, or subquery alias).
    * See the comment above `candidates` variable in resolve() for semantics the returned data.
    */
   private def resolveAsTableColumn(
@@ -187,12 +198,12 @@ abstract class LogicalPlan extends QueryPlan[LogicalPlan] with Logging {
       resolver: Resolver,
       attribute: Attribute): Option[(Attribute, List[String])] = {
     assert(nameParts.length > 1)
-    if (attribute.qualifiers.exists(resolver(_, nameParts.head))) {
-      // At least one qualifier matches. See if remaining parts match.
-      val remainingParts = nameParts.tail
-      resolveAsColumn(remainingParts, resolver, attribute)
-    } else {
+    val reducedNameParts = reduceQualifiers(nameParts, resolver, attribute.qualifiers)
+    // At least one qualifier matches.
+    if (reducedNameParts.size == nameParts.size) {
       None
+    } else {
+      resolveAsColumn(reducedNameParts, resolver, attribute)
     }
   }
 
@@ -226,7 +237,7 @@ abstract class LogicalPlan extends QueryPlan[LogicalPlan] with Logging {
     // and "c" is the struct field name, i.e. "a.b.c". In this case, Attribute will be "a.b",
     // and the second element will be List("c").
     var candidates: Seq[(Attribute, List[String])] = {
-      // If the name has 2 or more parts, try to resolve it as `table.column` first.
+      // If the name has 2 or more parts, try to identify the related attribute by the qualifiers
       if (nameParts.length > 1) {
         input.flatMap { option =>
           resolveAsTableColumn(nameParts, resolver, option)
