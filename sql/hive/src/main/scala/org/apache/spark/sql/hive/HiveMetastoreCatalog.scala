@@ -714,7 +714,7 @@ private[hive] case class MetastoreRelation
       HiveMetastoreTypes.toDataType(f.hiveType),
       // Since data can be dumped in randomly with no validation, everything is nullable.
       nullable = true
-    )(qualifiers = Seq(alias.getOrElse(tableName)))
+    )(qualifiers = if (alias.isEmpty) Seq(databaseName, tableName) else alias.get
   }
 
   /** PartitionKey attributes */
