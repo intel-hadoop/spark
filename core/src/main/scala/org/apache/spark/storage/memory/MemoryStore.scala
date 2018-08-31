@@ -33,7 +33,7 @@ import org.apache.spark.internal.config.{UNROLL_MEMORY_CHECK_PERIOD, UNROLL_MEMO
 import org.apache.spark.memory.{MemoryManager, MemoryMode}
 import org.apache.spark.serializer.{SerializationStream, SerializerManager}
 import org.apache.spark.storage._
-import org.apache.spark.unsafe.Platform
+import org.apache.spark.unsafe.{Platform, PMPlatform}
 import org.apache.spark.util.{SizeEstimator, Utils}
 import org.apache.spark.util.collection.SizeTrackingVector
 import org.apache.spark.util.io.{ChunkedByteBuffer, ChunkedByteBufferOutputStream}
@@ -96,6 +96,8 @@ private[spark] class MemoryStore(
   // Note: off-heap unroll memory is only used in putIteratorAsBytes() because off-heap caching
   // always stores serialized values.
   private val offHeapUnrollMemoryMap = mutable.HashMap[Long, Long]()
+  // used for persistent memory
+  private val pmUnrollMemoryMap = mutable.HashMap[Long, Long]()
 
   // Initial memory to request before unrolling any block
   private val unrollMemoryThreshold: Long =
@@ -103,7 +105,9 @@ private[spark] class MemoryStore(
 
   /** Total amount of memory available for storage, in bytes. */
   private def maxMemory: Long = {
-    memoryManager.maxOnHeapStorageMemory + memoryManager.maxOffHeapStorageMemory
+    memoryManager.maxOnHeapStorageMemory +
+      memoryManager.maxOffHeapStorageMemory +
+      memoryManager.maxPersistentStorageMemory
   }
 
   if (maxMemory < unrollMemoryThreshold) {
@@ -554,6 +558,7 @@ private[spark] class MemoryStore(
         val unrollMemoryMap = memoryMode match {
           case MemoryMode.ON_HEAP => onHeapUnrollMemoryMap
           case MemoryMode.OFF_HEAP => offHeapUnrollMemoryMap
+          case MemoryMode.PERSISTENT_MEMORY => pmUnrollMemoryMap
         }
         unrollMemoryMap(taskAttemptId) = unrollMemoryMap.getOrElse(taskAttemptId, 0L) + memory
       }
@@ -571,6 +576,7 @@ private[spark] class MemoryStore(
       val unrollMemoryMap = memoryMode match {
         case MemoryMode.ON_HEAP => onHeapUnrollMemoryMap
         case MemoryMode.OFF_HEAP => offHeapUnrollMemoryMap
+        case MemoryMode.PERSISTENT_MEMORY => pmUnrollMemoryMap
       }
       if (unrollMemoryMap.contains(taskAttemptId)) {
         val memoryToRelease = math.min(memory, unrollMemoryMap(taskAttemptId))
@@ -692,6 +698,7 @@ private class SerializedValuesHolder[T](
   val allocator = memoryMode match {
     case MemoryMode.ON_HEAP => ByteBuffer.allocate _
     case MemoryMode.OFF_HEAP => Platform.allocateDirectBuffer _
+    case MemoryMode.PERSISTENT_MEMORY => PMPlatform.allocateDirectBuffer _
   }
 
   val redirectableStream = new RedirectableOutputStream

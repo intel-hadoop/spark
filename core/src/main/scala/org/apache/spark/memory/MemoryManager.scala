@@ -62,6 +62,22 @@ private[spark] abstract class MemoryManager(
   offHeapExecutionMemoryPool.incrementPoolSize(maxOffHeapMemory - offHeapStorageMemory)
   offHeapStorageMemoryPool.incrementPoolSize(offHeapStorageMemory)
 
+  // for persistent memory
+  @GuardedBy("this")
+  protected val persistentMemoryStorageMemoryPool =
+      new StorageMemoryPool(this, MemoryMode.PERSISTENT_MEMORY)
+  @GuardedBy("this")
+  protected val persistentMemoryExecutionMemoryPool =
+      new ExecutionMemoryPool(this, MemoryMode.PERSISTENT_MEMORY)
+  protected[this] val maxPersistentMemory =
+    (conf.get(PERSISTENT_MEMORY_SIZE) * conf.get(PERSISTENT_MEMORY_USABLE_RATIO)).toLong
+  protected[this] val persistentMemoryStorageMemory =
+    (maxPersistentMemory * conf.get(PERSISTENT_MEMORY_STORAGE_FRACTION)).toLong
+  persistentMemoryStorageMemoryPool.incrementPoolSize(persistentMemoryStorageMemory)
+  persistentMemoryExecutionMemoryPool
+    .incrementPoolSize(maxPersistentMemory - persistentMemoryStorageMemory)
+
+
   /**
    * Total available on heap memory for storage, in bytes. This amount can vary over time,
    * depending on the MemoryManager implementation.
@@ -76,12 +92,18 @@ private[spark] abstract class MemoryManager(
   def maxOffHeapStorageMemory: Long
 
   /**
+   * Total available persistent memory for storage, in bytes.
+   */
+  def maxPersistentStorageMemory: Long
+
+  /**
    * Set the [[MemoryStore]] used by this manager to evict cached blocks.
    * This must be set after construction due to initialization ordering constraints.
    */
   final def setMemoryStore(store: MemoryStore): Unit = synchronized {
     onHeapStorageMemoryPool.setMemoryStore(store)
     offHeapStorageMemoryPool.setMemoryStore(store)
+    persistentMemoryStorageMemoryPool.setMemoryStore(store)
   }
 
   /**
@@ -128,6 +150,8 @@ private[spark] abstract class MemoryManager(
     memoryMode match {
       case MemoryMode.ON_HEAP => onHeapExecutionMemoryPool.releaseMemory(numBytes, taskAttemptId)
       case MemoryMode.OFF_HEAP => offHeapExecutionMemoryPool.releaseMemory(numBytes, taskAttemptId)
+      case MemoryMode.PERSISTENT_MEMORY =>
+        persistentMemoryExecutionMemoryPool.releaseMemory(numBytes, taskAttemptId)
     }
   }
 
@@ -138,7 +162,8 @@ private[spark] abstract class MemoryManager(
    */
   private[memory] def releaseAllExecutionMemoryForTask(taskAttemptId: Long): Long = synchronized {
     onHeapExecutionMemoryPool.releaseAllMemoryForTask(taskAttemptId) +
-      offHeapExecutionMemoryPool.releaseAllMemoryForTask(taskAttemptId)
+      offHeapExecutionMemoryPool.releaseAllMemoryForTask(taskAttemptId) +
+      persistentMemoryExecutionMemoryPool.releaseAllMemoryForTask(taskAttemptId)
   }
 
   /**
@@ -148,6 +173,8 @@ private[spark] abstract class MemoryManager(
     memoryMode match {
       case MemoryMode.ON_HEAP => onHeapStorageMemoryPool.releaseMemory(numBytes)
       case MemoryMode.OFF_HEAP => offHeapStorageMemoryPool.releaseMemory(numBytes)
+      case MemoryMode.PERSISTENT_MEMORY =>
+        persistentMemoryStorageMemoryPool.releaseMemory(numBytes)
     }
   }
 
@@ -157,6 +184,7 @@ private[spark] abstract class MemoryManager(
   final def releaseAllStorageMemory(): Unit = synchronized {
     onHeapStorageMemoryPool.releaseAllMemory()
     offHeapStorageMemoryPool.releaseAllMemory()
+    persistentMemoryStorageMemoryPool.releaseAllMemory()
   }
 
   /**
@@ -170,14 +198,18 @@ private[spark] abstract class MemoryManager(
    * Execution memory currently in use, in bytes.
    */
   final def executionMemoryUsed: Long = synchronized {
-    onHeapExecutionMemoryPool.memoryUsed + offHeapExecutionMemoryPool.memoryUsed
+    onHeapExecutionMemoryPool.memoryUsed +
+      offHeapExecutionMemoryPool.memoryUsed +
+      persistentMemoryExecutionMemoryPool.memoryUsed
   }
 
   /**
    * Storage memory currently in use, in bytes.
    */
   final def storageMemoryUsed: Long = synchronized {
-    onHeapStorageMemoryPool.memoryUsed + offHeapStorageMemoryPool.memoryUsed
+    onHeapStorageMemoryPool.memoryUsed +
+      offHeapStorageMemoryPool.memoryUsed +
+      persistentMemoryStorageMemoryPool.memoryUsed
   }
 
   /**
@@ -185,7 +217,8 @@ private[spark] abstract class MemoryManager(
    */
   private[memory] def getExecutionMemoryUsageForTask(taskAttemptId: Long): Long = synchronized {
     onHeapExecutionMemoryPool.getMemoryUsageForTask(taskAttemptId) +
-      offHeapExecutionMemoryPool.getMemoryUsageForTask(taskAttemptId)
+      offHeapExecutionMemoryPool.getMemoryUsageForTask(taskAttemptId) +
+      persistentMemoryExecutionMemoryPool.getMemoryUsageForTask(taskAttemptId)
   }
 
   // -- Fields related to Tungsten managed memory -------------------------------------------------

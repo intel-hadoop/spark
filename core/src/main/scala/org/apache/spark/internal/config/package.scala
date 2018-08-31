@@ -114,6 +114,36 @@ package object config {
     .checkValue(_ >= 0, "The off-heap memory size must not be negative")
     .createWithDefault(0)
 
+  private[spark] val PERSISTENT_MEMORY_ENABLED =
+    ConfigBuilder("spark.persistent.memory.enabled")
+    .doc("If true, we can cache block to persistent memory. The memory are used in volatile " +
+      "type. The numa binding also recommend to be enabled when this parameter set to true.")
+    .booleanConf
+    .createWithDefault(false)
+
+  private[spark] val PERSISTENT_MEMORY_SIZE = ConfigBuilder("spark.persistent.memory.size")
+    .doc("The absolute amount of memory in bytes which can be used for persistent memory " +
+      "allocation.")
+    .bytesConf(ByteUnit.BYTE)
+    .checkValue(_ >= 0, "The persistent memory size must not be negative")
+    .createWithDefault(0)
+
+  private[spark] val PERSISTENT_MEMORY_USABLE_RATIO =
+    ConfigBuilder("spark.persistent.memory.usable.ratio")
+    .doc("The usable ratio of persistent memory. We need reserve part of memory, because the " +
+      "persistent memory allocator is based on jemalloc.")
+    .doubleConf
+    .checkValue(v => v > 0.0 && v <= 1.0, "The persistent memory size must be greater than zero " +
+      "and less than or equal to 1.0")
+    .createWithDefault(0.8)
+
+  private[spark] val PERSISTENT_MEMORY_STORAGE_FRACTION =
+    ConfigBuilder("spark.persistent.memory.storage.fraction")
+    .doc("The fraction of persistent memory which used to storage in volatile mode.")
+    .doubleConf
+    .checkValue(_ >= 0.0, "The storage fraction of persistent memory must not be negative")
+    .createWithDefault(1.0)
+
   private[spark] val PYSPARK_EXECUTOR_MEMORY = ConfigBuilder("spark.executor.pyspark.memory")
     .bytesConf(ByteUnit.MiB)
     .createOptional

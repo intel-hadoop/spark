@@ -42,7 +42,7 @@ import org.apache.spark.scheduler.{ExecutorExited, ExecutorLossReason}
 import org.apache.spark.scheduler.cluster.CoarseGrainedClusterMessages.RemoveExecutor
 import org.apache.spark.scheduler.cluster.CoarseGrainedClusterMessages.RetrieveLastAllocatedExecutorId
 import org.apache.spark.scheduler.cluster.SchedulerBackendUtils
-import org.apache.spark.util.{Clock, SystemClock, ThreadUtils}
+import org.apache.spark.util.{Clock, SystemClock, ThreadUtils, XmlUtils}
 
 /**
  * YarnAllocator is charged with requesting containers from the YARN ResourceManager and deciding
@@ -162,6 +162,12 @@ private[yarn] class YarnAllocator(
   // A container placement strategy based on pending tasks' locality preference
   private[yarn] val containerPlacementStrategy =
     new LocalityPreferredContainerPlacementStrategy(sparkConf, conf, resource, resolver)
+
+  // The total number of numa node
+  private[yarn] val totalNumaNumber = XmlUtils.totalNumaNode()
+  // Mapping from host to executor counter, we use the counter with a round-robin mode to
+  // determine the numa node id that the executor should bind.
+  private[yarn] val hostToNuma = new mutable.HashMap[String, Int]()
 
   def getNumExecutorsRunning: Int = runningExecutors.size()
 
@@ -477,6 +483,14 @@ private[yarn] class YarnAllocator(
     for (container <- containersToUse) {
       executorIdCounter += 1
       val executorHostname = container.getNodeId.getHost
+      // Setting the numa id that the executor should binding. Just round robin from 0 to
+      // totalNumaNumber for each host.
+      // TODO: This is very ugly, however this is should be processed in resource
+      // manager(such as yarn).
+      val preSize = hostToNuma.getOrElseUpdate(executorHostname, 0)
+      val numaNodeId = preSize % totalNumaNumber
+      hostToNuma.put(executorHostname, preSize + 1)
+
       val containerId = container.getId
       val executorId = executorIdCounter.toString
       assert(container.getResource.getMemory >= resource.getMemory)
@@ -508,6 +522,7 @@ private[yarn] class YarnAllocator(
                   driverUrl,
                   executorId,
                   executorHostname,
+                  Some(numaNodeId),
                   executorMemory,
                   executorCores,
                   appAttemptId.getApplicationId.toString,

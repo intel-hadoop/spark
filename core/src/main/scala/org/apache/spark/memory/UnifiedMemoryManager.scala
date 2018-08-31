@@ -59,6 +59,8 @@ private[spark] class UnifiedMemoryManager private[memory] (
     assert(onHeapExecutionMemoryPool.poolSize + onHeapStorageMemoryPool.poolSize == maxHeapMemory)
     assert(
       offHeapExecutionMemoryPool.poolSize + offHeapStorageMemoryPool.poolSize == maxOffHeapMemory)
+    assert(persistentMemoryExecutionMemoryPool.poolSize +
+      persistentMemoryStorageMemoryPool.poolSize == maxPersistentMemory)
   }
 
   assertInvariants()
@@ -69,6 +71,10 @@ private[spark] class UnifiedMemoryManager private[memory] (
 
   override def maxOffHeapStorageMemory: Long = synchronized {
     maxOffHeapMemory - offHeapExecutionMemoryPool.memoryUsed
+  }
+
+  override def maxPersistentStorageMemory: Long = synchronized {
+    maxPersistentMemory - persistentMemoryExecutionMemoryPool.memoryUsed
   }
 
   /**
@@ -97,6 +103,12 @@ private[spark] class UnifiedMemoryManager private[memory] (
         offHeapStorageMemoryPool,
         offHeapStorageMemory,
         maxOffHeapMemory)
+      case MemoryMode.PERSISTENT_MEMORY => (
+        persistentMemoryExecutionMemoryPool,
+        persistentMemoryStorageMemoryPool,
+        persistentMemoryStorageMemory,
+        maxPersistentMemory
+      )
     }
 
     /**
@@ -161,6 +173,11 @@ private[spark] class UnifiedMemoryManager private[memory] (
         offHeapExecutionMemoryPool,
         offHeapStorageMemoryPool,
         maxOffHeapStorageMemory)
+      case MemoryMode.PERSISTENT_MEMORY => (
+        persistentMemoryExecutionMemoryPool,
+        persistentMemoryStorageMemoryPool,
+        maxPersistentStorageMemory
+      )
     }
     if (numBytes > maxMemory) {
       // Fail fast if the block simply won't fit

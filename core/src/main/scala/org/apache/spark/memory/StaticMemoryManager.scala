@@ -57,12 +57,16 @@ private[spark] class StaticMemoryManager(
 
   override def maxOffHeapStorageMemory: Long = 0L
 
+  override def maxPersistentStorageMemory: Long = 0L
+
   override def acquireStorageMemory(
       blockId: BlockId,
       numBytes: Long,
       memoryMode: MemoryMode): Boolean = synchronized {
     require(memoryMode != MemoryMode.OFF_HEAP,
       "StaticMemoryManager does not support off-heap storage memory")
+    require(memoryMode != MemoryMode.PERSISTENT_MEMORY,
+      "StaticMemoryManager does not support persistent storage memory")
     if (numBytes > maxOnHeapStorageMemory) {
       // Fail fast if the block simply won't fit
       logInfo(s"Will not store $blockId as the required space ($numBytes bytes) exceeds our " +
@@ -79,6 +83,8 @@ private[spark] class StaticMemoryManager(
       memoryMode: MemoryMode): Boolean = synchronized {
     require(memoryMode != MemoryMode.OFF_HEAP,
       "StaticMemoryManager does not support off-heap unroll memory")
+    require(memoryMode != MemoryMode.PERSISTENT_MEMORY,
+      "StaticMemoryManager does not support persistent unroll memory")
     val currentUnrollMemory = onHeapStorageMemoryPool.memoryStore.currentUnrollMemory
     val freeMemory = onHeapStorageMemoryPool.memoryFree
     // When unrolling, we will use all of the existing free memory, and, if necessary,
@@ -96,6 +102,8 @@ private[spark] class StaticMemoryManager(
       numBytes: Long,
       taskAttemptId: Long,
       memoryMode: MemoryMode): Long = synchronized {
+    require(memoryMode != MemoryMode.PERSISTENT_MEMORY,
+      "StaticMemoryManager does not support persistent execution memory")
     memoryMode match {
       case MemoryMode.ON_HEAP => onHeapExecutionMemoryPool.acquireMemory(numBytes, taskAttemptId)
       case MemoryMode.OFF_HEAP => offHeapExecutionMemoryPool.acquireMemory(numBytes, taskAttemptId)

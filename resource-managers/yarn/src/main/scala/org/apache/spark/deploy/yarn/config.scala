@@ -129,6 +129,12 @@ package object config {
 
   /* Launcher configuration. */
 
+  private[spark] val SPARK_YARN_NUMA_ENABLED = ConfigBuilder("spark.yarn.numa.enabled")
+    .doc("Whether enabling numa binding when executor start up. This is recommend to true " +
+      "when persistent memory is enabled.")
+    .booleanConf
+    .createWithDefault(false)
+
   private[spark] val WAIT_FOR_APP_COMPLETION = ConfigBuilder("spark.yarn.submit.waitAppCompletion")
     .doc("In cluster mode, whether to wait for the application to finish before exiting the " +
       "launcher process.")

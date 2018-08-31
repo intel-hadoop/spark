@@ -190,6 +190,7 @@
     ./python/run-tests.py and ./python/setup.py too.
     -->
     <arrow.version>0.10.0</arrow.version>
+    <native.loader.version>2.3.0</native.loader.version>
 
     <test.java.home>${java.home}</test.java.home>
     <test.exclude.tags></test.exclude.tags>
@@ -2001,6 +2002,12 @@
             <artifactId>netty-handler</artifactId>
           </exclusion>
         </exclusions>
+      </dependency>
+
+      <dependency>
+        <groupId>org.scijava</groupId>
+        <artifactId>native-lib-loader</artifactId>
+        <version>${native.loader.version}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>

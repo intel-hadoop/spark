@@ -41,7 +41,8 @@ import org.apache.spark.security.CryptoStreamUtils
 import org.apache.spark.serializer.{JavaSerializer, Serializer, SerializerManager}
 import org.apache.spark.shuffle.ShuffleManager
 import org.apache.spark.storage._
-import org.apache.spark.util.{RpcUtils, Utils}
+import org.apache.spark.unsafe.PMPlatform
+import org.apache.spark.util.{RpcUtils, Utils, XmlUtils}
 
 /**
  * :: DeveloperApi ::
@@ -175,6 +176,7 @@ object SparkEnv extends Logging {
     create(
       conf,
       SparkContext.DRIVER_IDENTIFIER,
+      None,
       bindAddress,
       advertiseAddress,
       Option(port),
@@ -193,6 +195,7 @@ object SparkEnv extends Logging {
   private[spark] def createExecutorEnv(
       conf: SparkConf,
       executorId: String,
+      numaNodeId: Option[Int],
       hostname: String,
       numCores: Int,
       ioEncryptionKey: Option[Array[Byte]],
@@ -200,6 +203,7 @@ object SparkEnv extends Logging {
     val env = create(
       conf,
       executorId,
+      numaNodeId,
       hostname,
       hostname,
       None,
@@ -214,9 +218,11 @@ object SparkEnv extends Logging {
   /**
    * Helper method to create a SparkEnv for a driver or an executor.
    */
+  // scalastyle:off
   private def create(
       conf: SparkConf,
       executorId: String,
+      numaNodeId: Option[Int],
       bindAddress: String,
       advertiseAddress: String,
       port: Option[Int],
@@ -225,6 +231,7 @@ object SparkEnv extends Logging {
       ioEncryptionKey: Option[Array[Byte]],
       listenerBus: LiveListenerBus = null,
       mockOutputCommitCoordinator: Option[OutputCommitCoordinator] = None): SparkEnv = {
+    // scalastyle:on
 
     val isDriver = executorId == SparkContext.DRIVER_IDENTIFIER
 
@@ -371,6 +378,26 @@ object SparkEnv extends Logging {
     val outputCommitCoordinatorRef = registerOrLookupEndpoint("OutputCommitCoordinator",
       new OutputCommitCoordinatorEndpoint(rpcEnv, outputCommitCoordinator))
     outputCommitCoordinator.coordinatorRef = Some(outputCommitCoordinatorRef)
+
+    // persistent memory initialize
+    val persistentMemoryEnabled = conf.get(PERSISTENT_MEMORY_ENABLED)
+    if (!isDriver && persistentMemoryEnabled) {
+      val initializeSize = conf.get(PERSISTENT_MEMORY_SIZE)
+      val numaEnabled = conf.getBoolean("spark.yarn.numa.enabled", false)
+      val numaId = if (!numaEnabled && numaNodeId.isEmpty) {
+        logWarning("Persistent memory is enabled, however numa binding is not enabled")
+        // If numa binding is unabled, we just mod the total number of numa node
+        executorId.trim.toInt % XmlUtils.totalNumaNode()
+      } else {
+        numaNodeId.get
+      }
+
+      val path = XmlUtils.parsePersistentMemoryConfig().apply(numaId) + File.separator + executorId
+      val initialPath = Utils.createTempDir(path)
+      PMPlatform.initialize(initialPath.getCanonicalPath, initializeSize)
+      logInfo(s"Initialize persistent memory(numa node id: ${numaId}, path: " +
+        s"${initialPath.getCanonicalPath}, size: ${initializeSize}) successfully.")
+    }
 
     val envInstance = new SparkEnv(
       executorId,
